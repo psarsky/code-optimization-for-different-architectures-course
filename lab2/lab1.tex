@@ -1,0 +1,220 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{tgpagella}
+\usepackage{graphicx}
+\usepackage{polski}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{hyperref}
+
+\pagestyle{empty}
+
+\DeclareMathOperator{\sgn}{sgn}
+
+\begin{document}
+
+\title{Optymalizacja Kodu Na Różne Architektury\\Ćwiczenie 1}
+\date{}
+
+\maketitle
+
+
+\section{Wprowadzenie}
+
+Rozważmy następującą procedurę uruchamiającą mnożenie macierzy
+
+\lstinputlisting[language=C, frame=none, escapeinside={(*}{*)}, caption={Bazowa wersja kodu}, label={kod}, basicstyle=\small]{mm1.c}
+
+\section{Ćwiczenia}
+
+Przy kolejnych krokach proszę wykonywać kopie aktualnych wersji stanu kodu.
+Będą potrzebne przy ostatnim punkcie oraz na kolejnych zajęciach.
+Proszę na bieżąco notować czasy wykonywania się obliczeń.
+
+\subsection{}
+
+Proszę skompilować procedurę bez optymalizacji.
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> gcc mm1.c 
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> ./a.out 
+Time: 8.436804e+00 
+maciekw@Banach:~/studenci/OORA/skrypty/lab1>  
+\end{lstlisting}
+
+\subsection{}
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm1.c mm2.c
+\end{lstlisting}
+oraz dokonać w mm2.c pierwszej próby optymalizacji procedury mm
+poprzez umieszczenie zmiennych kierujących pętlami w rejestrach
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+register unsigned int i,j,k;
+\end{lstlisting}
+Proszę skompilować procedurę z pierwszą optymalizacją.\\
+Jaki jest czas działania?
+
+\subsection{}
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm2.c mm3.c
+\end{lstlisting}
+oraz dokonać w mm3.c drugiej próby optymalizacji procedury mm
+poprzez wykonanie lokalnej kopii oraz umieszczenie rozmiaru pętli w
+rejestrach
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+register unsigned int local_size;
+\end{lstlisting}
+Proszę skompilować procedurę z optymalizacją.\\
+Jaki jest czas działania?
+
+
+\subsection{}
+
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm3.c mm4.c
+\end{lstlisting}
+oraz dokonać w mm4.c trzeciej próby optymalizacji procedury mm
+poprzez zamianę pętli z krokiem +1
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+  for (i = 0; i < SIZE; i++) {
+    for (j = 0; j < SIZE; j++) {
+      for (k = 0; k < SIZE; k++){
+        ...
+      }
+    }
+  }
+\end{lstlisting}
+na pętle kończące się zerowaniem licznika.
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+for (i = local_size; i-- ; )
+\end{lstlisting}
+Proszę skompilować procedurę z optymalizacją.\\
+Jaki jest czas działania?
+
+
+\subsection{}
+
+Proszę wykonać kopię procedury (UWAGA - patrz na wersje plików)
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm3.c mm5_4.c
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm3.c mm5_8.c
+\end{lstlisting}
+oraz dokonać w mm5\_*.c czwartej próby optymalizacji procedury mm
+poprzez zamianę pętli względem k z krokiem +1
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+  for (i = 0; i < SIZE; i++) {
+    for (j = 0; j < SIZE; j++) {
+      for (k = 0; k < SIZE; k++){
+        sum = sum + _first_(i,k)*_second_(k,j);
+      } 
+      _multiply_(i,j) = sum;
+      sum = 0;
+    }
+  }
+\end{lstlisting}
+na pętle względem k z krokiem +4 (mm5\_4.c) i +8 (mm5\_8.c).
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+  for (i = 0; i < local_size; i++) {
+    for (j = 0; j < local_size; j++) {
+      for (k = 0; k < local_size; ) {
+        if(k<local_size-4) {
+          sum = sum + first[i][k]*second[k][j];
+          sum = sum + first[i][k+1]*second[k+1][j];
+          //PROSZE UZUPELNIC
+          k=k+4;
+        }
+        else {
+         sum = sum + first[i][k]*second[k][j];
+         k++;
+        }
+      }
+      multiply[i][j] = sum;
+      sum = 0;
+    }
+  }
+\end{lstlisting}
+Proszę skompilować procedurę z optymalizacją.\\
+Jaki jest czas działania?
+
+
+\subsection{}
+
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm5_4.c mm6.c
+\end{lstlisting}
+oraz dokonać w mm6.c piątej próby optymalizacji procedury mm
+poprzez umieszczenie wspólnie używanych zmiennych wewnątrz
+pętli w rejestrach
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+ register double XXX;
+\end{lstlisting}
+oraz zwinięcie ciągu sum do pojedynczego polecenia.\\
+Proszę skompilować procedury z optymalizacją.\\
+Jaki jest czas działania?
+
+\subsection{}
+
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm6.c mm7.c
+\end{lstlisting}
+oraz dokonać w mm7.c szóstej próby optymalizacji procedury mm
+poprzez zamianę wierszy i kolumn w macierzy second.\\
+Proszę skompilować procedurę z optymalizacją.\\
+Jaki jest czas działania?
+
+\subsection{}
+
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm6.c mm8.c
+\end{lstlisting}
+oraz dokonać w mm8.c siódmej próby optymalizacji procedury mm
+poprzez użycie makr i bezpośredniego dostępu do ciągłej pamięci.
+\begin{lstlisting}[language=C, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+#define _first_(i,j) first[ (j)*local_size + (i) ]
+#define _second_(i,j) second[ (j)*local_size + (i) ]
+#define _multiply_(i,j) multiply[ (j)*local_size + (i) ]
+...
+int mm(double * first, double * second, double * multiply, int SIZE)
+...
+sum = sum + _first_(i,k)*_second_(k,j);
+...
+iret = mm(first_,second_,multiply_,SIZE);
+...
+\end{lstlisting}
+Proszę skompilować procedurę z optymalizacją.\\
+Jaki jest czas działania?
+
+\subsection{}
+
+Proszę wykonać kopię procedury
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> cp mm8.c mm9.c
+\end{lstlisting}
+oraz dokonać w mm9.c ósmej próby optymalizacji procedury mm
+poprzez połączenie optymalizacji z dwóch ostatnich punktów.\\
+Proszę skompilować procedurę z optymalizacją.\\
+Jaki jest czas działania?
+
+\subsection{}
+
+Proszę wszystkie uzyskane na Laboratoriach kody skompilować z opcją optymalizacji \textbf{-O2}.
+\begin{lstlisting}[language=bash, frame=none, basicstyle=\small, escapeinside={(*}{*)}]
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> gcc -O2 mm1.c
+maciekw@Banach:~/studenci/OORA/skrypty/lab1> ./a.out
+...
+\end{lstlisting}
+Jaki jest ich czas działania?
+
+\section{Podsumowanie}
+
+Które metody optymalizacji dały najlepsze rezultaty?\\
+Dlaczego? Jakie mechanizmy za nimi stały?
+
+
+\end{document}
