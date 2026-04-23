@@ -447,22 +447,7 @@ std::string normalize_text_v6(const std::string& input) {
         }
     }
 
-    std::string collapsed;
-    collapsed.reserve(merged.size());
-    bool in_whitespace = false;
-    for (char ch : merged) {
-        if (ch == ' ') {
-            if (!in_whitespace) {
-                collapsed.push_back(' ');
-                in_whitespace = true;
-            }
-            continue;
-        }
-        in_whitespace = false;
-        collapsed.push_back(ch);
-    }
-
-    return normalize::deduplicate_adjacent_words(collapsed, false);
+    return normalize::deduplicate_adjacent_words(merged, false);
 }
 ```
 
