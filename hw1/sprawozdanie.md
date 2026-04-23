@@ -46,10 +46,133 @@ W ten sposób można bezpośrednio porównać wpływ strojenia pod Zen 2. Dla `n
 Algorytmicznie to samo co wersja bazowa (`normalize1`), ale kompilowana bez `-march/-mtune`. Ta wersja służy tylko do porównania, co zmienia samo dopasowanie kompilacji do docelowej mikroarchitektury.
 
 ### Wersja 1 - `normalize1.cpp` (bazowa)
+
+```c
+std::string normalize_text_v1(const std::string& input) {
+    std::string stage;
+    bool in_whitespace = false;
+
+    for (char ch : input) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+
+        if (!normalize::is_printable_ascii(c)) {
+            continue;
+        }
+
+        if (normalize::is_ascii_whitespace(c)) {
+            if (!in_whitespace) {
+                stage.push_back(' ');
+                in_whitespace = true;
+            }
+            continue;
+        }
+
+        in_whitespace = false;
+        char out = normalize::to_ascii_lower(c);
+        if (std::ispunct(static_cast<unsigned char>(out)) != 0) {
+            out = ',';
+        }
+        stage.push_back(out);
+    }
+
+    return normalize::deduplicate_adjacent_words(stage, false);
+}
+
+bool is_printable_ascii(unsigned char c) {
+    return c >= 32 && c <= 126;
+}
+
+bool is_ascii_whitespace(unsigned char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+}
+
+char to_ascii_lower(unsigned char c) {
+    if (c >= 'A' && c <= 'Z') {
+        return static_cast<char>(c - 'A' + 'a');
+    }
+    return static_cast<char>(c);
+}
+
+bool is_word_char(unsigned char c) {
+    return std::isalnum(c) != 0;
+}
+
+std::string deduplicate_adjacent_words(const std::string& input, bool preallocate_output) {
+    std::string output;
+    if (preallocate_output) {
+        output.reserve(input.size());
+    }
+
+    std::string current_word;
+    std::string previous_word;
+    std::string pending_separator;
+
+    std::size_t i = 0;
+    while (i < input.size()) {
+        pending_separator.clear();
+        while (i < input.size() && !is_word_char(static_cast<unsigned char>(input[i]))) {
+            pending_separator.push_back(input[i]);
+            i++;
+        }
+        if (i >= input.size()) {
+            break;
+        }
+
+        const std::size_t word_start = i;
+        while (i < input.size() && is_word_char(static_cast<unsigned char>(input[i]))) {
+            i++;
+        }
+
+        current_word = input.substr(word_start, i - word_start);
+        if (current_word != previous_word) {
+            output.append(pending_separator);
+            output.append(current_word);
+            previous_word = current_word;
+        }
+    }
+
+    return output;
+}
+```
+
 **Implementacja bazowa:** jedna pętla po wejściu, `push_back` do `stage`, bez `reserve` w głównym buforze.  
 To oznacza, że gdy `stage` rośnie, `std::string` okresowo robi realokacje (nowy większy bufor + kopiowanie dotychczasowej zawartości). Dodatkowo jest drugi etap deduplikacji słów. Efekt: prosty kod, ale część czasu idzie na zarządzanie pamięcią, nie na samą logikę znaków.
 
 ### Wersja 2 - `normalize2.cpp` (prealokacja)
+
+```c
+std::string normalize_text_v2(const std::string& input) {
+    std::string stage;
+    stage.reserve(input.size());
+
+    bool in_whitespace = false;
+    for (char ch : input) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+
+        if (!normalize::is_printable_ascii(c)) {
+            continue;
+        }
+
+        if (normalize::is_ascii_whitespace(c)) {
+            if (!in_whitespace) {
+                stage.push_back(' ');
+                in_whitespace = true;
+            }
+            continue;
+        }
+
+        in_whitespace = false;
+        char out = normalize::to_ascii_lower(c);
+        if (std::ispunct(static_cast<unsigned char>(out)) != 0) {
+            out = ',';
+        }
+        stage.push_back(out);
+    }
+
+    return normalize::deduplicate_adjacent_words(stage, true);
+}
+```
+
 Implementacja dodaje prealokację (`stage.reserve(input.size())`) i używa zoptymalizowanej deduplikacji z prealokacją wyniku.  
 Dzięki temu można ograniczyć liczbę realokacji i kopiowań podczas budowania tekstu wynikowego. Logika transformacji znaków jest ta sama jak w v1, więc różnica wydajności wynika prawie wyłącznie z mniejszego narzutu pamięciowego.
 
@@ -63,9 +186,77 @@ Wniosek: prealokacja daje minimalny zysk względem wersji bazowej.
 
 ### Wersja 3 - `normalize3.cpp` (in-place)
 
+```c
+std::string normalize_text_v3(std::string input) {
+    std::size_t write_index = 0;
+    bool in_whitespace = false;
+
+    for (std::size_t read_index = 0; read_index < input.size(); ++read_index) {
+        const unsigned char c = static_cast<unsigned char>(input[read_index]);
+
+        if (!normalize::is_printable_ascii(c)) {
+            continue;
+        }
+
+        if (normalize::is_ascii_whitespace(c)) {
+            if (!in_whitespace) {
+                input[write_index++] = ' ';
+                in_whitespace = true;
+            }
+            continue;
+        }
+
+        in_whitespace = false;
+        char out = normalize::to_ascii_lower(c);
+        if (std::ispunct(static_cast<unsigned char>(out)) != 0) {
+            out = ',';
+        }
+        input[write_index++] = out;
+    }
+    input.resize(write_index);
+
+    std::size_t read_index = 0;
+    write_index = 0;
+    std::string previous_word;
+
+    while (read_index < input.size()) {
+        const std::size_t separator_start = read_index;
+        while (read_index < input.size() &&
+               !normalize::is_word_char(static_cast<unsigned char>(input[read_index]))) {
+            ++read_index;
+        }
+        const std::size_t separator_end = read_index;
+
+        if (read_index >= input.size()) {
+            break;
+        }
+
+        const std::size_t word_start = read_index;
+        while (read_index < input.size() &&
+               normalize::is_word_char(static_cast<unsigned char>(input[read_index]))) {
+            ++read_index;
+        }
+        const std::string_view word(&input[word_start], read_index - word_start);
+
+        if (word != previous_word) {
+            const std::size_t separator_len = separator_end - separator_start;
+            if (separator_len != 0U) {
+                std::memmove(&input[write_index], &input[separator_start], separator_len);
+                write_index += separator_len;
+            }
+            std::memmove(&input[write_index], &input[word_start], word.size());
+            write_index += word.size();
+            previous_word.assign(word.data(), word.size());
+        }
+    }
+
+    input.resize(write_index);
+    return input;
+}
+```
+
 Implementacja przechodzi na model in-place: funkcja przyjmuje `input` przez wartość i nadpisuje ten sam bufor indeksami read/write.  
 Dzięki temu normalizacja znaków i deduplikacja sąsiednich słów wykonują się na tym samym stringu, a wynik jest finalnie przycinany (`resize`) do faktycznej długości. W fazie deduplikacji używane są przesunięcia `memmove`, co ogranicza liczbę alokacji i kopiowań.
-W `run_cli` dla `repeats > 1` każda iteracja przekazuje do normalizatora świeżą kopię wejścia, więc powtarzalność pomiarów i poprawność wyniku pozostają zachowane.
 
 **Wpływ na czas (wyniki z `bench_results.csv`):**
 - `test_input_large.txt`: v1 **2462.300 ms**, v3 **1165.800 ms** (~**52.7% szybciej**),
@@ -76,6 +267,36 @@ W `run_cli` dla `repeats > 1` każda iteracja przekazuje do normalizatora świe�
 Wniosek: to najsilniejsza optymalizacja w całym zadaniu i najszybsza wersja we wszystkich testach.
 
 ### Wersja 4 - `normalize4.cpp` (algorytmy STL)
+
+```c
+std::string normalize_text_v4(const std::string& input) {
+    std::string stage;
+    stage.reserve(input.size());
+
+    std::copy_if(
+        input.begin(), input.end(), std::back_inserter(stage),
+        [](char ch) { return normalize::is_printable_ascii(static_cast<unsigned char>(ch)); });
+
+    std::transform(stage.begin(), stage.end(), stage.begin(), [](char ch) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (normalize::is_ascii_whitespace(c)) {
+            return ' ';
+        }
+        char out = normalize::to_ascii_lower(c);
+        if (std::ispunct(static_cast<unsigned char>(out)) != 0) {
+            return ',';
+        }
+        return out;
+    });
+
+    const auto unique_end = std::unique(stage.begin(), stage.end(), [](char left, char right) {
+        return left == ' ' && right == ' ';
+    });
+    stage.erase(unique_end, stage.end());
+
+    return normalize::deduplicate_adjacent_words(stage, false);
+}
+```
 
 Wersja przepisuje główną logikę na algorytmy standardowe (`std::copy_if`, `std::transform`, `std::unique`) i iteratory.  
 Kod jest bardziej deklaratywny i czytelny, ale kosztuje to dodatkowe pełne przejścia po danych oraz więcej pracy na pośrednich etapach transformacji.
@@ -90,6 +311,51 @@ Wniosek: poprawa czytelności kodu przełożyła się negatywnie na wydajność 
 
 ### Wersja 5 - `normalize5.cpp` (bare-metal)
 
+```c
+std::string normalize_text_v5(const std::string& input) {
+    if (input.empty()) {
+        return {};
+    }
+
+    auto buffer = std::make_unique<char[]>(input.size());
+    const unsigned char* read_ptr = reinterpret_cast<const unsigned char*>(input.data());
+    const unsigned char* read_end = read_ptr + input.size();
+    char* write_ptr = buffer.get();
+
+    bool in_whitespace = false;
+    while (read_ptr < read_end) {
+        const unsigned char c = *read_ptr++;
+
+        if (!normalize::is_printable_ascii(c)) {
+            continue;
+        }
+
+        if (normalize::is_ascii_whitespace(c)) {
+            if (!in_whitespace) {
+                *write_ptr++ = ' ';
+                in_whitespace = true;
+            }
+            continue;
+        }
+
+        in_whitespace = false;
+        char out = normalize::to_ascii_lower(c);
+        if (std::ispunct(static_cast<unsigned char>(out)) != 0) {
+            out = ',';
+        }
+        *write_ptr++ = out;
+    }
+
+    const std::size_t compact_size = static_cast<std::size_t>(write_ptr - buffer.get());
+    std::string stage(compact_size, '\0');
+    if (compact_size != 0U) {
+        std::memcpy(stage.data(), buffer.get(), compact_size);
+    }
+
+    return normalize::deduplicate_adjacent_words(stage, false);
+}
+```
+
 Wersja bare-metal realizuje główną pętlę na surowych wskaźnikach (`char*`) i buforze zaalokowanym na surowej tablicy znaków.  
 Po zakończeniu etapu filtrowania/normalizacji wynik jest kopiowany `memcpy` do `std::string`, a następnie wykonywana jest deduplikacja. Dzięki temu maleje narzut abstrakcji STL w najbardziej gorącej części kodu.
 
@@ -102,6 +368,103 @@ Po zakończeniu etapu filtrowania/normalizacji wynik jest kopiowany `memcpy` do 
 Wniosek: wersja bare-metal daje duży zysk względem bazowej, ale nadal przegrywa z v3 (in-place) przez koszt dodatkowego bufora i kopiowania.
 
 ### Wersja 6 - `normalize6.cpp` (równoległa)
+
+```c
+std::string normalize_chunk(const std::string& input, std::size_t begin, std::size_t end) {
+    std::string local;
+    local.reserve(end - begin);
+
+    bool in_whitespace = false;
+    for (std::size_t i = begin; i < end; ++i) {
+        const unsigned char c = static_cast<unsigned char>(input[i]);
+
+        if (!normalize::is_printable_ascii(c)) {
+            continue;
+        }
+
+        if (normalize::is_ascii_whitespace(c)) {
+            if (!in_whitespace) {
+                local.push_back(' ');
+                in_whitespace = true;
+            }
+            continue;
+        }
+
+        in_whitespace = false;
+        char out = normalize::to_ascii_lower(c);
+        if (std::ispunct(static_cast<unsigned char>(out)) != 0) {
+            out = ',';
+        }
+        local.push_back(out);
+    }
+
+    return local;
+}
+
+std::string normalize_text_v6(const std::string& input) {
+    if (input.empty()) {
+        return {};
+    }
+
+    const unsigned int hw_threads = std::max(1U, std::thread::hardware_concurrency());
+    const std::size_t min_chunk_size = 1U << 20;
+    std::size_t chunk_count = (input.size() + min_chunk_size - 1U) / min_chunk_size;
+    chunk_count = std::max<std::size_t>(1, std::min<std::size_t>(chunk_count, hw_threads));
+
+    if (chunk_count == 1) {
+        return normalize::deduplicate_adjacent_words(normalize_chunk(input, 0, input.size()), false);
+    }
+
+    std::vector<std::string> partial_results(chunk_count);
+    std::vector<std::thread> workers;
+    workers.reserve(chunk_count);
+
+    const std::size_t base_chunk = input.size() / chunk_count;
+    std::size_t begin = 0;
+    for (std::size_t idx = 0; idx < chunk_count; ++idx) {
+        const std::size_t end = (idx + 1 == chunk_count) ? input.size() : begin + base_chunk;
+        workers.emplace_back([&, idx, begin, end]() {
+            partial_results[idx] = normalize_chunk(input, begin, end);
+        });
+        begin = end;
+    }
+
+    for (std::thread& worker : workers) {
+        worker.join();
+    }
+
+    std::string merged;
+    merged.reserve(input.size());
+    for (std::size_t i = 0; i < partial_results.size(); ++i) {
+        const std::string& part = partial_results[i];
+        if (part.empty()) {
+            continue;
+        }
+        if (!merged.empty() && merged.back() == ' ' && part.front() == ' ') {
+            merged.append(part.begin() + 1, part.end());
+        } else {
+            merged.append(part);
+        }
+    }
+
+    std::string collapsed;
+    collapsed.reserve(merged.size());
+    bool in_whitespace = false;
+    for (char ch : merged) {
+        if (ch == ' ') {
+            if (!in_whitespace) {
+                collapsed.push_back(' ');
+                in_whitespace = true;
+            }
+            continue;
+        }
+        in_whitespace = false;
+        collapsed.push_back(ch);
+    }
+
+    return normalize::deduplicate_adjacent_words(collapsed, false);
+}
+```
 
 Wersja równoległa dzieli wejście na fragmenty i normalizuje je równolegle (`std::thread`) w osobnych chunkach. Następnie wyniki są scalane, redukowane są graniczne duplikaty separatorów i wykonywana jest finalna deduplikacja słów.  
 Liczba wątków jest ograniczana przez `hardware_concurrency` i minimalny rozmiar chunku, aby nie tworzyć nadmiernego narzutu dla małych danych.
@@ -203,9 +566,3 @@ Uwagi:
 3. Wersja STL (v4) poprawia czytelność kodu, ale dla tego obciążenia była wyraźnie wolniejsza od bazy.
 4. Wersja bare-metal (v5) znacząco przyspieszyła wykonanie względem bazy, lecz nadal ustępuje v3.
 5. Wersja równoległa (v6) poprawia czas względem bazy, ale koszt podziału i scalania danych ogranicza zysk końcowy.
-
-## 8. Uruchomienie
-
-```bash
-./run_bench.sh
-```
